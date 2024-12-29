@@ -1,13 +1,11 @@
-__version__ = "2.0.4"
+__version__ = "2.7.2.post1"
 
-from flash_attn.flash_attn_interface import flash_attn_func
-from flash_attn.flash_attn_interface import flash_attn_kvpacked_func
-from flash_attn.flash_attn_interface import flash_attn_qkvpacked_func
-from flash_attn.flash_attn_interface import flash_attn_varlen_qkvpacked_func
-from flash_attn.flash_attn_interface import flash_attn_varlen_kvpacked_func
-from flash_attn.flash_attn_interface import flash_attn_varlen_func
-
-# Legacy Interface Support
-from flash_attn.flash_attn_interface import flash_attn_unpadded_qkvpacked_func
-from flash_attn.flash_attn_interface import flash_attn_unpadded_kvpacked_func
-from flash_attn.flash_attn_interface import flash_attn_unpadded_func
+from flash_attn.flash_attn_interface import (
+    flash_attn_func,
+    flash_attn_kvpacked_func,
+    flash_attn_qkvpacked_func,
+    flash_attn_varlen_func,
+    flash_attn_varlen_kvpacked_func,
+    flash_attn_varlen_qkvpacked_func,
+    flash_attn_with_kvcache,
+)

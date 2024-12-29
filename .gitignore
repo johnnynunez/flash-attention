@@ -28,4 +28,8 @@ csrc/flash_attn_rocm/src/*.hip
 csrc/flash_attn_rocm/*.cu
 csrc/flash_attn_rocm/*.hip
 
+# IDE-related
+.idea/
 
+# Dev
+venv

@@ -175,7 +175,7 @@ torch::Tensor single_query_attention(const torch::Tensor q,
         TORCH_CHECK(rotary_sin_.has_value());
         auto rotary_sin = rotary_sin_.value();
         CHECK_DEVICE(rotary_sin);
-        CHECK_SHAPE(rotary_cos, batch_size, rotary_embedding_dim / 2);
+        CHECK_SHAPE(rotary_sin, batch_size, rotary_embedding_dim / 2);
         CHECK_CONTIGUOUS(rotary_sin);
         TORCH_CHECK(rotary_sin.scalar_type() == input_type);
     }
@@ -190,8 +190,7 @@ torch::Tensor single_query_attention(const torch::Tensor q,
     }
 
     // Otherwise the kernel will be launched from cuda:0 device
-    // Cast to char to avoid compiler warning about narrowing
-    at::cuda::CUDAGuard device_guard{(char)q.get_device()};
+    at::cuda::CUDAGuard device_guard{q.device()};
 
     torch::Tensor out = torch::empty_like(q);
 

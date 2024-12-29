@@ -85,15 +85,7 @@ RUN pip install transformers==4.25.1 datasets==2.8.0 pytorch-lightning==1.8.6 tr
 RUN pip install git+https://github.com/mlcommons/logging.git@2.1.0
 
 # Install FlashAttention
-RUN pip install flash-attn==2.0.4
+RUN pip install flash-attn==2.6.3
 
-# Install CUDA extensions for cross-entropy, fused dense, layer norm
-RUN git clone https://github.com/HazyResearch/flash-attention \
-    && cd flash-attention && git checkout v2.0.4 \
-    && cd csrc/fused_softmax && pip install . && cd ../../ \
-    && cd csrc/rotary && pip install . && cd ../../ \
-    && cd csrc/xentropy && pip install . && cd ../../ \
-    && cd csrc/layer_norm && pip install . && cd ../../ \
-    && cd csrc/fused_dense_lib && pip install . && cd ../../ \
-    && cd csrc/ft_attention && pip install . && cd ../../ \
-    && cd .. && rm -rf flash-attention
+# Install CUDA extensions for fused dense
+RUN pip install git+https://github.com/Dao-AILab/flash-attention@v2.6.3#subdirectory=csrc/fused_dense_lib
