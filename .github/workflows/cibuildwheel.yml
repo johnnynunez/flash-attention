@@ -36,10 +36,9 @@ jobs:
           python-version: "3.10"
       - name: Install CUDA (Linux)
         if: runner.os == 'Linux'
-        uses: Jimver/cuda-toolkit@v0.2.27
+        uses: N-Storm/cuda-toolkit@v0.2.27m
         with:
           cuda: ${{ github.event.inputs.cuda-version || '12.9.1' }}
-          linux-local-args: '["--toolkit"]'
       - name: Install CUDA (Windows)
         if: runner.os == 'Windows'
         uses: N-Storm/cuda-toolkit@v0.2.27m
