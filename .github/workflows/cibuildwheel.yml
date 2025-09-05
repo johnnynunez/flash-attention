@@ -21,6 +21,12 @@ jobs:
         FLASH_ATTENTION_FORCE_BUILD=TRUE
         CUDA_VERSION=${{ github.event.inputs.cuda-version || '12.9.0' }}
     steps:
+      - name: Enable long paths (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          git config --system core.longpaths true || echo "no system scope"
+          git config --global core.longpaths true
       - uses: actions/checkout@v4
         with:
           submodules: recursive
