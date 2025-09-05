@@ -1,0 +1,67 @@
+name: Build wheels with cibuildwheel
+
+on:
+  workflow_dispatch:
+    inputs:
+      cuda-version:
+        description: "CUDA toolkit version"
+        required: true
+        default: "12.9.1"
+jobs:
+  build:
+    name: Build wheels
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu--22.04-arm, windows-2022]
+    env:
+      CIBW_BUILD: cp39-* cp310-* cp311-* cp312-*
+      CIBW_SKIP: "pp* *musllinux*"
+      CIBW_ENVIRONMENT: |
+        FLASH_ATTENTION_FORCE_BUILD=TRUE
+        CUDA_VERSION=${{ github.event.inputs.cuda-version || '12.9.0' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install CUDA (Linux)
+        if: runner.os == 'Linux'
+        uses: Jimver/cuda-toolkit@v0.2.27
+        with:
+          cuda: ${{ github.event.inputs.cuda-version || '12.1.0' }}
+          linux-local-args: '["--toolkit"]'
+      - name: Install CUDA (Windows)
+        if: runner.os == 'Windows'
+        uses: Jimver/cuda-toolkit@v0.2.27
+        with:
+          cuda: ${{ github.event.inputs.cuda-version || '12.1.0' }}
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.1.4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  publish:
+    name: Upload to PyPI
+    needs: build
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Publish wheels to PyPI
+        env:
+          TWINE_USERNAME: "__token__"
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          python -m pip install --upgrade twine
+          twine upload dist/*.whl
