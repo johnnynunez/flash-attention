@@ -44,7 +44,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: N-Storm/cuda-toolkit@v0.2.27m
         with:
-          cuda: '13.0.0'
+          cuda: ${{ github.event.inputs.cuda-version || '12.9.1' }}
           use-github-cache: false
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.1.4
