@@ -42,11 +42,10 @@ jobs:
           linux-local-args: '["--toolkit"]'
       - name: Install CUDA (Windows)
         if: runner.os == 'Windows'
-        uses: Jimver/cuda-toolkit@v0.2.27
+        uses: N-Storm/cuda-toolkit@v0.2.27m
         with:
-          cuda: ${{ github.event.inputs.cuda-version || '12.9.1' }}
-          use-github-cache: false    # optional: disable to avoid cache errors
-          use-local-cache: false     # optional: disable to avoid cache errors
+          cuda: '13.0.0'
+          use-github-cache: false
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.1.4
       - uses: actions/upload-artifact@v4
