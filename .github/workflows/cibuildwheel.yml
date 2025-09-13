@@ -24,6 +24,9 @@ jobs:
       CUDA_VERSION: ${{ github.event.inputs.cuda-version || '13.0.0' }}
       TORCH_VERSION: ${{ github.event.inputs.torch-version || '2.4.0' }}
       CIBW_ENVIRONMENT: |
+        NVCC_THREADS=2
+        MAX_JOBS=1
+        FLASH_ATTENTION_SKIP_CUDA_BUILD=FALSE
         FLASH_ATTENTION_FORCE_BUILD=TRUE
       CIBW_ENVIRONMENT_PASS_LINUX: "CUDA_VERSION TORCH_VERSION"
       CIBW_ENVIRONMENT_PASS_WINDOWS: "CUDA_VERSION TORCH_VERSION"
