@@ -18,7 +18,6 @@ else
   pip install --no-cache-dir "torch==${TORCH_VERSION}" --index-url https://download.pytorch.org/whl/cpu
 fi
 
-nvcc --version
 python --version
 python -c "import torch; print('PyTorch:', torch.__version__)"
 python -c "import torch; print('CUDA:', torch.version.cuda)"
