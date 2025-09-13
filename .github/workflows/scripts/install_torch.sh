@@ -9,6 +9,8 @@ short_cuda() {
   echo "${1//./}" | head -c 3
 }
 
+pip install --no-cache-dir -U pip setuptools wheel setuptools numpy packaging psutil ninja
+
 if [[ -n "${CUDA_VERSION}" ]]; then
   tag="$(short_cuda "${CUDA_VERSION}")"
   echo "Installing torch ${TORCH_VERSION} with CUDA ${tag}"
