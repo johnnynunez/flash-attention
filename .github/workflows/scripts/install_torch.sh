@@ -5,10 +5,15 @@ TORCH_VERSION="${TORCH_VERSION:?TORCH_VERSION not set}"
 CUDA_VERSION="${CUDA_VERSION:-}"
 
 # Convert CUDA version to the short form expected by PyTorch wheels (e.g. 12.9.1 -> 129).
+short_cuda() {
+  # 12.9.1 -> 129 (para cu129)
+  echo "${1//./}" | head -c 3
+}
+
 if [[ -n "${CUDA_VERSION}" ]]; then
-  SHORT_CUDA_VERSION="$(echo "${CUDA_VERSION}" | tr -d '.' | head -c 3)"
-  echo "Installing torch ${TORCH_VERSION} with CUDA ${SHORT_CUDA_VERSION}"
-  pip install --no-cache-dir "torch==${TORCH_VERSION}" --index-url "https://download.pytorch.org/whl/cu${SHORT_CUDA_VERSION}"
+  tag="$(short_cuda "${CUDA_VERSION}")"
+  echo "Installing torch ${TORCH_VERSION} with CUDA ${tag}"
+  pip install --no-cache-dir "torch==${TORCH_VERSION}" --index-url "https://download.pytorch.org/whl/cu${tag}"
 else
   echo "Installing torch ${TORCH_VERSION} (CPU only)"
   pip install --no-cache-dir "torch==${TORCH_VERSION}" --index-url https://download.pytorch.org/whl/cpu
