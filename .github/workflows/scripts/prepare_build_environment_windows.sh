@@ -38,6 +38,7 @@ ps "try {
      }"
 
 CUDA_PATH_MIXED="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v${SHORT_VER}"
+export CUDA_HOME="$CUDA_PATH_MIXED"
 export CUDA_PATH="$CUDA_PATH_MIXED"
 export PATH="$CUDA_PATH_MIXED/bin:$PATH"
 
