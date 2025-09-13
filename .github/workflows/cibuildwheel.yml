@@ -49,6 +49,22 @@ jobs:
         run: |
           git config --system core.longpaths true || echo "no system scope"
           git config --global core.longpaths true
+          
+      - name: Free up disk space
+        if: ${{ runner.os == 'Linux' }}
+        # https://github.com/easimon/maximize-build-space/blob/master/action.yml
+        # https://github.com/easimon/maximize-build-space/tree/test-report
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          
+      - name: Set up swap space
+        if: runner.os == 'Linux'
+        uses: pierotofy/set-swap-space@v1.0
+        with:
+          swap-size-gb: 10
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
