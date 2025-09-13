@@ -6,7 +6,6 @@ CUDA_VERSION="${CUDA_VERSION:-}"
 
 # Convert CUDA version to the short form expected by PyTorch wheels (e.g. 12.9.1 -> 129).
 short_cuda() {
-  # 12.9.1 -> 129 (para cu129)
   echo "${1//./}" | head -c 3
 }
 
