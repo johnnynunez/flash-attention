@@ -23,6 +23,7 @@ jobs:
       CIBW_ARCHS_WINDOWS: AMD64
       CUDA_VERSION: ${{ github.event.inputs.cuda-version || '13.0.0' }}
       TORCH_VERSION: ${{ github.event.inputs.torch-version || '2.4.0' }}
+      CIBW_BUILD_FRONTEND: "build; args: --no-isolation"
       CIBW_ENVIRONMENT: |
         NVCC_THREADS=2
         MAX_JOBS=1
