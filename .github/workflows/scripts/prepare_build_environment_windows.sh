@@ -37,8 +37,10 @@ CUDA_PATH_MIXED="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v${SHORT_VER
 export CUDA_HOME="$CUDA_PATH_MIXED"
 export CUDA_PATH="$CUDA_PATH_MIXED"
 export PATH="$CUDA_PATH_MIXED/bin:$PATH"
+echo "CUDA_PATH=$CUDA_PATH_MIXED" >> "$GITHUB_ENV"
+echo "CUDA_HOME=$CUDA_PATH_MIXED" >> "$GITHUB_ENV"
+echo "PATH=$CUDA_PATH_MIXED/bin" >> "$GITHUB_PATH"
 
-echo "CUDA_PATH=$CUDA_PATH"
 if [[ -x "$CUDA_PATH_MIXED/bin/nvcc.exe" ]]; then
   "$CUDA_PATH_MIXED/bin/nvcc.exe" --version || true
 else
