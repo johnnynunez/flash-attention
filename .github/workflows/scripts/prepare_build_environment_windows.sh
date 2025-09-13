@@ -37,7 +37,7 @@ ps "try {
        Start-Process winget -ArgumentList @('install','--exact','--id','NVIDIA.CUDA','--accept-package-agreements','--accept-source-agreements','--disable-interactivity') -Wait -NoNewWindow
      }"
 
-CUDA_PATH_MIXED="/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v${SHORT_VER}"
+CUDA_PATH_MIXED="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v${SHORT_VER}"
 export CUDA_PATH="$CUDA_PATH_MIXED"
 export PATH="$CUDA_PATH_MIXED/bin:$PATH"
 
