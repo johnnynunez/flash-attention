@@ -6,11 +6,11 @@ on:
       cuda-version:
         description: "CUDA toolkit version"
         required: true
-        default: "12.9.1"
+        default: "13.0.0"
       torch-version:
         description: "PyTorch version"
         required: true
-        default: "2.8.0"
+        default: "2.9.0"
 jobs:
   build_wheels:
     name: Build wheels
@@ -22,11 +22,9 @@ jobs:
       CIBW_ENVIRONMENT: |
         FLASH_ATTENTION_FORCE_BUILD=TRUE
         CUDA_VERSION=${{ github.event.inputs.cuda-version || '13.0.0' }}
-        TORCH_VERSION=${{ github.event.inputs.torch-version || '2.4.0' }}
-        CIBW_ENVIRONMENT_PASS_LINUX: "CUDA_VERSION TORCH_VERSION TORCH_CUDA_VERSION"
-        CIBW_ENVIRONMENT_PASS_WINDOWS: "CUDA_VERSION TORCH_VERSION TORCH_CUDA_VERSION"
-      CIBW_ENVIRONMENT_PASS_LINUX: "CUDA_VERSION"
-      CIBW_ENVIRONMENT_PASS_WINDOWS: "CUDA_VERSION"
+        TORCH_VERSION=${{ github.event.inputs.torch-version || '2.9.0' }}
+      CIBW_ENVIRONMENT_PASS_LINUX: "CUDA_VERSION TORCH_VERSION"
+      CIBW_ENVIRONMENT_PASS_WINDOWS: "CUDA_VERSION TORCH_VERSION"
       CIBW_BUILD: cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*
       CIBW_BEFORE_ALL_LINUX: .github/workflows/scripts/prepare_build_environment_linux.sh
       CIBW_BEFORE_ALL_WINDOWS: bash .github/workflows/scripts/prepare_build_environment_windows.sh
