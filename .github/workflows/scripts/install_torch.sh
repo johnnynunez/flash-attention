@@ -8,8 +8,7 @@ CUDA_VERSION="${CUDA_VERSION:-}"
 if [[ -n "${CUDA_VERSION}" ]]; then
   SHORT_CUDA_VERSION="$(echo "${CUDA_VERSION}" | tr -d '.' | head -c 3)"
   echo "Installing torch ${TORCH_VERSION} with CUDA ${SHORT_CUDA_VERSION}"
-  pip install --no-cache-dir "torch==${TORCH_VERSION}" \
-    --index-url "https://download.pytorch.org/whl/cu${SHORT_CUDA_VERSION}"
+  pip install --no-cache-dir "torch==${TORCH_VERSION}" --index-url "https://download.pytorch.org/whl/cu${SHORT_CUDA_VERSION}"
 else
   echo "Installing torch ${TORCH_VERSION} (CPU only)"
   pip install --no-cache-dir "torch==${TORCH_VERSION}" --index-url https://download.pytorch.org/whl/cpu
