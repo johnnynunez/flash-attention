@@ -41,6 +41,10 @@ until dnf install -y "cuda-toolkit-${CUDA_VERSION_DNF}"; do
   sleep 10
 done
 
+export CUDA_HOME=/usr/local/cuda
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+
 # Sanity checks
 if command -v nvcc >/dev/null 2>&1; then
   nvcc --version || true
