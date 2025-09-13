@@ -18,6 +18,8 @@ jobs:
       CIBW_ENVIRONMENT: |
         FLASH_ATTENTION_FORCE_BUILD=TRUE
         CUDA_VERSION=${{ github.event.inputs.cuda-version || '13.0.0' }}
+      CIBW_ENVIRONMENT_PASS_LINUX: "CUDA_VERSION"
+      CIBW_ENVIRONMENT_PASS_WINDOWS: "CUDA_VERSION"
       CIBW_BUILD: cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*
       CIBW_BEFORE_ALL_LINUX: script/prepare_build_environment_linux.sh
       CIBW_BEFORE_ALL_WINDOWS: bash script/prepare_build_environment_windows.sh
