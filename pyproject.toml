@@ -1,34 +1,38 @@
 [build-system]
 requires = [
-  "setuptools>=42",
-  "wheel",
-  "packaging",
-  "psutil",
-  "ninja",
-  "torch",
-  "numpy"
+    "setuptools>=64",
+    "wheel",
+    "packaging",
+    "psutil",
+    "ninja",
+    "torch",
+    "numpy"
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "flash_attn"
-dynamic = ["version"]
+name = "flash-attn"
 description = "Flash Attention: Fast and Memory-Efficient Exact Attention"
 readme = "README.md"
-requires-python = ">=3.9"
-url = "https://github.com/Dao-AILab/flash-attention"
-classifiers = [
-  "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: BSD License",
-  "Operating System :: Unix"
-]
-authors = [
-  { name = "Tri Dao", email = "tri@tridao.me" }
-]
+requires-python = ">=3.10"
+authors = [{ name = "Tri Dao", email = "tri@tridao.me" }]
 license = { file = "LICENSE" }
-dependencies = [
-  "torch"
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: Unix",
+    "Operating System :: Microsoft :: Windows",
 ]
+
+dependencies = [
+    "torch",
+    "einops",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/Dao-AILab/flash-attention"
 
 [tool.setuptools]
 include-package-data = true
@@ -36,14 +40,14 @@ include-package-data = true
 [tool.setuptools.packages.find]
 include = ["flash_attn*"]
 exclude = [
-  "build",
-  "csrc",
-  "include",
-  "tests",
-  "dist",
-  "docs",
-  "benchmarks",
-  "flash_attn.egg-info"
+    "build",
+    "csrc",
+    "include",
+    "tests",
+    "dist",
+    "docs",
+    "benchmarks",
+    "flash_attn.egg-info"
 ]
 
 [tool.setuptools.dynamic]
