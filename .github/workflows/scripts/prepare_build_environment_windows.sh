@@ -23,10 +23,8 @@ ps 'Start-Process winget -ArgumentList @("install","--exact","--id","Kitware.CMa
 ps 'Start-Process winget -ArgumentList @("install","--exact","--id","Git.Git","--accept-package-agreements","--accept-source-agreements","--disable-interactivity") -Wait -NoNewWindow'
 
 # 4) CUDA Toolkit
-CUDA_VERSION="${CUDA_VERSION:-12.9.1}"   # picked up from CIBW_ENVIRONMENT
-SHORT_VER="${CUDA_VERSION%.*}"           # 12.9.1 -> 12.9 ; if already 12.9, stays 12.9
-
-CUDA_VERSION="${CUDA_VERSION:-13.0.0}"
+CUDA_VERSION="${CUDA_VERSION:-13.0.0}"   # picked up from env or defaults
+SHORT_VER="${CUDA_VERSION%.*}"           # 13.0.0 -> 13.0 ; if already 12.9, stays 12.9
 echo "Using CUDA $CUDA_VERSION"
 
 if [[ "$SHORT_VER" == "$CUDA_VERSION" ]]; then SHORT_VER="$CUDA_VERSION"; fi
