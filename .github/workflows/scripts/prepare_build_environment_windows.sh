@@ -22,24 +22,37 @@ ps "Start-Process winget -ArgumentList @('install','--exact','--id','Kitware.CMa
 ps "Start-Process winget -ArgumentList @('install','--exact','--id','Git.Git','--accept-package-agreements','--accept-source-agreements','--disable-interactivity') -Wait -NoNewWindow"
 
 # 4) CUDA Toolkit
-CUDA_VERSION="${CUDA_VERSION:-13.0.0}"   # picked up from env or defaults
+CUDA_VERSION="${CUDA_VERSION:-13.0.0}"   # override in env if needed (e.g. 12.9.1)
 SHORT_VER="${CUDA_VERSION%.*}"           # 12.9.1 -> 12.9 ; if already 12.9, stays 12.9
-echo "Using CUDA $CUDA_VERSION"
-
 if [[ "$SHORT_VER" == "$CUDA_VERSION" ]]; then SHORT_VER="$CUDA_VERSION"; fi
+echo "Using CUDA $CUDA_VERSION (short=$SHORT_VER)"
 
 echo "--- Installing NVIDIA CUDA Toolkit $CUDA_VERSION ---"
 CUDA_INSTALLER_URL="https://developer.download.nvidia.com/compute/cuda/${CUDA_VERSION}/local_installers/cuda_${CUDA_VERSION}_windows.exe"
-ps "Invoke-WebRequest -Uri '$CUDA_INSTALLER_URL' -OutFile 'cuda_installer.exe'"
-ps "Start-Process ./cuda_installer.exe -ArgumentList '/s /n' -Wait -NoNewWindow"  # /s silent, /n no reboot
+
+# Prefer curl.exe if available (it handles TLS redirects nicely on runners)
+if command -v curl.exe >/dev/null 2>&1; then
+  curl.exe -L -o cuda_installer.exe "$CUDA_INSTALLER_URL"
+else
+  ps "Invoke-WebRequest -Uri '$CUDA_INSTALLER_URL' -OutFile 'cuda_installer.exe'"
+fi
+
+# Silent install; /s=silent, /n=no reboot
+ps "Start-Process -FilePath '.\\cuda_installer.exe' -ArgumentList '/s /n' -Wait -NoNewWindow"
 
 CUDA_PATH_MIXED="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v${SHORT_VER}"
 export CUDA_HOME="$CUDA_PATH_MIXED"
 export CUDA_PATH="$CUDA_PATH_MIXED"
 export PATH="$CUDA_PATH_MIXED/bin:$PATH"
-echo "CUDA_PATH=$CUDA_PATH_MIXED" >> "$GITHUB_ENV"
-echo "CUDA_HOME=$CUDA_PATH_MIXED" >> "$GITHUB_ENV"
-echo "PATH=$CUDA_PATH_MIXED/bin" >> "$GITHUB_PATH"
+
+# Persist for GitHub Actions, if available
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  echo "CUDA_PATH=$CUDA_PATH_MIXED" >> "$GITHUB_ENV"
+  echo "CUDA_HOME=$CUDA_PATH_MIXED" >> "$GITHUB_ENV"
+fi
+if [[ -n "${GITHUB_PATH:-}" ]]; then
+  echo "$CUDA_PATH_MIXED/bin" >> "$GITHUB_PATH"
+fi
 
 if [[ -x "$CUDA_PATH_MIXED/bin/nvcc.exe" ]]; then
   "$CUDA_PATH_MIXED/bin/nvcc.exe" --version || true
@@ -48,8 +61,8 @@ else
 fi
 
 # 5) Quick sanity hints (non-fatal)
-command -v cl.exe   >/dev/null 2>&1 && echo "cl.exe available."   || echo "NOTE: cl.exe not on PATH yet MSVC will still be auto-located by tools"
-command -v cmake    >/dev/null 2>&1 && cmake --version  || echo "NOTE: cmake not visible yet."
-command -v git      >/dev/null 2>&1 && git --version    || echo "NOTE: git not visible yet."
+command -v cl.exe   >/dev/null 2>&1 && echo "cl.exe available."   || echo "NOTE: cl.exe not on PATH yet; MSVC may still be auto-located by tools."
+command -v cmake    >/dev/null 2>&1 && cmake --version            || echo "NOTE: cmake not visible yet."
+command -v git      >/dev/null 2>&1 && git --version              || echo "NOTE: git not visible yet."
 
 echo "=== Windows build prep complete ==="
