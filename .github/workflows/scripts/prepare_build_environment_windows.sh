@@ -29,7 +29,7 @@ echo "Using CUDA $CUDA_VERSION"
 if [[ "$SHORT_VER" == "$CUDA_VERSION" ]]; then SHORT_VER="$CUDA_VERSION"; fi
 
 echo "--- Installing NVIDIA CUDA Toolkit $CUDA_VERSION ---"
-CUDA_INSTALLER_URL="https://developer.download.nvidia.com/compute/cuda/${CUDA_VERSION}/local_installers/cuda_${CUDA_VERSION}_windows.exe
+CUDA_INSTALLER_URL="https://developer.download.nvidia.com/compute/cuda/${CUDA_VERSION}/local_installers/cuda_${CUDA_VERSION}_windows.exe"
 ps "Invoke-WebRequest -Uri '$CUDA_INSTALLER_URL' -OutFile 'cuda_installer.exe'"
 ps "Start-Process ./cuda_installer.exe -ArgumentList '/s /n' -Wait -NoNewWindow"  # /s silent, /n no reboot
 
