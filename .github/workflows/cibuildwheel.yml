@@ -6,7 +6,7 @@ on:
       cuda-version:
         description: "CUDA toolkit version"
         required: true
-        default: "12.4.0"
+        default: "13.0.0"
       torch-version:
         description: "PyTorch version"
         required: true
@@ -22,8 +22,8 @@ jobs:
     env:
       CIBW_ARCHS: auto64
       CIBW_ARCHS_WINDOWS: AMD64
-      CUDA_VERSION: ${{ github.event.inputs.cuda-version || '12.4.0' }}
-      TORCH_VERSION: ${{ github.event.inputs.torch-version || '2.4.0' }}
+      CUDA_VERSION: ${{ github.event.inputs.cuda-version || '13.0.0' }}
+      TORCH_VERSION: ${{ github.event.inputs.torch-version || '2.9.0' }}
       CIBW_BUILD_FRONTEND: "build; args: --no-isolation"
       CIBW_ENVIRONMENT_LINUX: |
         FLASH_ATTENTION_SKIP_CUDA_BUILD=0
