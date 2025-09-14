@@ -44,7 +44,7 @@ echo "PATH=$CUDA_PATH_MIXED/bin" >> "$GITHUB_PATH"
 if [[ -x "$CUDA_PATH_MIXED/bin/nvcc.exe" ]]; then
   "$CUDA_PATH_MIXED/bin/nvcc.exe" --version || true
 else
-  echo "WARN: nvcc.exe not found at $CUDA_PATH_MIXED/bin (it may appear after install completes)."
+  echo "WARN: nvcc.exe not found at $CUDA_PATH_MIXED/bin"
 fi
 
 # 5) Quick sanity hints (non-fatal)
