@@ -57,6 +57,12 @@ FORCE_BUILD = os.getenv("FLASH_ATTENTION_FORCE_BUILD", "FALSE") == "TRUE"
 SKIP_CUDA_BUILD = os.getenv("FLASH_ATTENTION_SKIP_CUDA_BUILD", "FALSE") == "TRUE"
 # For CI, we want the option to build with C++11 ABI since the nvcr images use C++11 ABI
 FORCE_CXX11_ABI = os.getenv("FLASH_ATTENTION_FORCE_CXX11_ABI", "FALSE") == "TRUE"
+
+print(f"\n=== Flash Attention Build Configuration ===")
+print(f"FLASH_ATTENTION_FORCE_BUILD = {os.getenv('FLASH_ATTENTION_FORCE_BUILD', 'NOT_SET')} -> FORCE_BUILD = {FORCE_BUILD}")
+print(f"FLASH_ATTENTION_SKIP_CUDA_BUILD = {os.getenv('FLASH_ATTENTION_SKIP_CUDA_BUILD', 'NOT_SET')} -> SKIP_CUDA_BUILD = {SKIP_CUDA_BUILD}")
+print(f"FLASH_ATTENTION_FORCE_CXX11_ABI = {os.getenv('FLASH_ATTENTION_FORCE_CXX11_ABI', 'NOT_SET')} -> FORCE_CXX11_ABI = {FORCE_CXX11_ABI}")
+print(f"==========================================\n")
 USE_TRITON_ROCM = os.getenv("FLASH_ATTENTION_TRITON_AMD_ENABLE", "FALSE") == "TRUE"
 SKIP_CK_BUILD = os.getenv("FLASH_ATTENTION_SKIP_CK_BUILD", "TRUE") == "TRUE" if USE_TRITON_ROCM else False
 
@@ -516,8 +522,13 @@ class CachedWheelsCommand(_bdist_wheel):
     """
 
     def run(self):
+        print(f"\n=== CachedWheelsCommand.run() ===")
+        print(f"FORCE_BUILD = {FORCE_BUILD}")
         if FORCE_BUILD:
+            print("FORCE_BUILD is True - building from source (skipping wheel download)")
             return super().run()
+        else:
+            print("FORCE_BUILD is False - attempting to download pre-built wheel")
 
         wheel_url, wheel_filename = get_wheel_url()
         print("Guessing wheel URL: ", wheel_url)

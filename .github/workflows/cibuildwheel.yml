@@ -6,7 +6,7 @@ on:
       cuda-version:
         description: "CUDA toolkit version"
         required: true
-        default: "13.0.0"
+        default: "12.4.0"
       torch-version:
         description: "PyTorch version"
         required: true
@@ -22,12 +22,13 @@ jobs:
     env:
       CIBW_ARCHS: auto64
       CIBW_ARCHS_WINDOWS: AMD64
-      CUDA_VERSION: ${{ github.event.inputs.cuda-version || '13.0.0' }}
+      CUDA_VERSION: ${{ github.event.inputs.cuda-version || '12.4.0' }}
       TORCH_VERSION: ${{ github.event.inputs.torch-version || '2.4.0' }}
       CIBW_BUILD_FRONTEND: "build; args: --no-isolation"
       CIBW_ENVIRONMENT_LINUX: |
         FLASH_ATTENTION_SKIP_CUDA_BUILD=0
         FLASH_ATTENTION_FORCE_BUILD=1
+        FLASH_ATTENTION_FORCE_CXX11_ABI=1
         NVCC_THREADS=2
         MAX_JOBS=1
       CIBW_ENVIRONMENT_WINDOWS: |
@@ -35,10 +36,11 @@ jobs:
         PATH=%CUDA_HOME%\bin;%PATH%
         FLASH_ATTENTION_SKIP_CUDA_BUILD=0
         FLASH_ATTENTION_FORCE_BUILD=1
+        FLASH_ATTENTION_FORCE_CXX11_ABI=1
         NVCC_THREADS=2
         MAX_JOBS=1
-      CIBW_ENVIRONMENT_PASS_LINUX: "CUDA_VERSION TORCH_VERSION FLASH_ATTENTION_SKIP_CUDA_BUILD FLASH_ATTENTION_FORCE_BUILD"
-      CIBW_ENVIRONMENT_PASS_WINDOWS: "CUDA_VERSION TORCH_VERSION FLASH_ATTENTION_SKIP_CUDA_BUILD FLASH_ATTENTION_FORCE_BUILD"
+      CIBW_ENVIRONMENT_PASS_LINUX: "CUDA_VERSION TORCH_VERSION FLASH_ATTENTION_SKIP_CUDA_BUILD FLASH_ATTENTION_FORCE_BUILD FLASH_ATTENTION_FORCE_CXX11_ABI"
+      CIBW_ENVIRONMENT_PASS_WINDOWS: "CUDA_VERSION TORCH_VERSION FLASH_ATTENTION_SKIP_CUDA_BUILD FLASH_ATTENTION_FORCE_BUILD FLASH_ATTENTION_FORCE_CXX11_ABI"
       CIBW_BUILD: cp310-* cp311-* cp312-* cp313-*
       CIBW_BEFORE_ALL_LINUX: .github/workflows/scripts/prepare_build_environment_linux.sh
       CIBW_BEFORE_ALL_WINDOWS: bash .github/workflows/scripts/prepare_build_environment_windows.sh
