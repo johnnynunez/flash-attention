@@ -22,7 +22,7 @@ ps "Start-Process winget -ArgumentList @('install','--exact','--id','Kitware.CMa
 ps "Start-Process winget -ArgumentList @('install','--exact','--id','Git.Git','--accept-package-agreements','--accept-source-agreements','--disable-interactivity') -Wait -NoNewWindow"
 
 # 4) CUDA Toolkit
-CUDA_VERSION="${CUDA_VERSION:-12.9.1}"   # picked up from env or defaults
+CUDA_VERSION="${CUDA_VERSION:-13.0.0}"   # picked up from env or defaults
 SHORT_VER="${CUDA_VERSION%.*}"           # 12.9.1 -> 12.9 ; if already 12.9, stays 12.9
 echo "Using CUDA $CUDA_VERSION"
 
@@ -48,7 +48,7 @@ else
 fi
 
 # 5) Quick sanity hints (non-fatal)
-command -v cl.exe   >/dev/null 2>&1 && echo "cl.exe available."   || echo "NOTE: cl.exe not on PATH yet (MSVC will still be auto-located by tools)."
+command -v cl.exe   >/dev/null 2>&1 && echo "cl.exe available."   || echo "NOTE: cl.exe not on PATH yet MSVC will still be auto-located by tools"
 command -v cmake    >/dev/null 2>&1 && cmake --version  || echo "NOTE: cmake not visible yet."
 command -v git      >/dev/null 2>&1 && git --version    || echo "NOTE: git not visible yet."
 
