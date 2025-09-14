@@ -24,7 +24,7 @@ jobs:
       CIBW_ARCHS_WINDOWS: AMD64
       CUDA_VERSION: ${{ github.event.inputs.cuda-version || '13.0.0' }}
       TORCH_VERSION: ${{ github.event.inputs.torch-version || '2.9.0' }}
-      CIBW_BUILD_FRONTEND: "pip; args: --no-build-isolation"
+      CIBW_BUILD_FRONTEND: "pip; args: --no-build-isolation -vv"
       CIBW_ENVIRONMENT: |
         FLASH_ATTENTION_SKIP_CUDA_BUILD=FALSE
         FLASH_ATTENTION_FORCE_BUILD=TRUE
