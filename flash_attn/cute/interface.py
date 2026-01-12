@@ -422,6 +422,8 @@ def _flash_attn_fwd(
             num_nheads_in_l2,
             tile_count_semaphore,
         ) = scheduler_metadata
+        # just create it again for testing
+        tile_count_semaphore = torch.zeros(1, dtype=torch.int32, device="cuda")
         assert all(
             t is None or t.is_cuda
             for t in (
@@ -456,6 +458,11 @@ def _flash_attn_fwd(
             else None
         )
     else:
+        num_m_blocks = None
+        num_splits_dynamic = None
+        varlen_batch_idx = None
+        num_nheads_in_l2 = None
+        tile_count_semaphore = None
         num_m_blocks_cute = None
         num_splits_dynamic_cute = None
         varlen_batch_idx_cute = None
@@ -492,6 +499,7 @@ def _flash_attn_fwd(
         compute_capability,
         page_size not in [None, 128],  # paged KV non-TMA
         has_scheduler_metadata,
+        tile_count_semaphore is not None,
     )
     if compile_key not in _flash_attn_fwd.compile_cache:
         (
@@ -603,6 +611,7 @@ def _flash_attn_fwd(
             sparse_tensors,
             cute_aux_tensors,
             num_splits_dynamic_cute,
+            tile_count_semaphore_cute,
             options="--enable-tvm-ffi",
         )
 
@@ -625,6 +634,7 @@ def _flash_attn_fwd(
         normalized_block_sparse_tensors,
         aux_tensors,
         num_splits_dynamic_cute,
+        tile_count_semaphore_cute,
     )
     if is_split_kv:
         _flash_attn_fwd_combine(
