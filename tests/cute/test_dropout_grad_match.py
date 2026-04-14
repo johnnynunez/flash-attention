@@ -263,6 +263,49 @@ def philox_py(c0, c1, c2, c3, k0, k1):
     return c0, c1, c2, c3
 
 
+def generate_mask_per_element(B, H, Sq, Sk, p_dropout, seed):
+    """Generate dropout mask matching apply_dropout_mask_per_element (SM90/SM100).
+
+    Each element is independently keyed by its global (row, col) position:
+      Philox counter: (batch*nheads+head, 0, global_row, global_col)
+      Philox key:     (seed_lo, seed_hi)
+      Keep if:        (pr0 & 0xFF) <= p_keep_uint8
+    where p_keep_uint8 = int(255 * (1 - p_dropout)).
+    """
+    seed_lo = seed & MASK32
+    seed_hi = (seed >> 32) & MASK32
+    threshold_8 = int(255 * (1.0 - p_dropout))
+
+    mask = torch.ones(B, H, Sq, Sk, dtype=torch.bool)
+    for b in range(B):
+        for h in range(H):
+            rng_key_lo = (b * H + h) & MASK32
+            for row in range(Sq):
+                for col in range(Sk):
+                    r0, _r1, _r2, _r3 = philox_py(rng_key_lo, 0, row, col, seed_lo, seed_hi)
+                    rand_byte = r0 & 0xFF
+                    mask[b, h, row, col] = (rand_byte <= threshold_8)
+    return mask
+
+
+def _device_sm():
+    """Return the SM architecture number of the current CUDA device (e.g. 80, 90, 100)."""
+    major, minor = torch.cuda.get_device_capability()
+    return major * 10 + int(minor)
+
+
+def generate_mask_python_philox(B, H, Sq, Sk, p_dropout, seed):
+    """Select the correct Python Philox reference based on the device SM arch.
+
+    SM80/SM120: FA2-style MMA-layout keying (apply_dropout_mask).
+    SM90/SM100: per-element position keying (apply_dropout_mask_per_element).
+    """
+    sm = _device_sm()
+    if sm >= 90:
+        return generate_mask_per_element(B, H, Sq, Sk, p_dropout, seed)
+    return generate_mask_mma_layout(B, H, Sq, Sk, p_dropout, seed)
+
+
 def generate_mask_mma_layout(B, H, Sq, Sk, p_dropout, seed,
                              tile_m=64, tile_n=64, num_warps=4):
     """Generate dropout mask matching the kernel's MMA-layout Philox keying.
@@ -356,7 +399,12 @@ def generate_mask_mma_layout(B, H, Sq, Sk, p_dropout, seed,
 
 
 def test_mask_matches_python_philox():
-    """Verify kernel dropout mask matches independent MMA-layout Python Philox."""
+    """Verify kernel dropout mask matches independent Python Philox reference.
+
+    Selects the correct Philox keying scheme based on the device SM arch:
+      SM80:  FA2-style MMA-layout keying (apply_dropout_mask)
+      SM90+: per-element position keying (apply_dropout_mask_per_element)
+    """
     from flash_attn.cute.interface import flash_attn_func
 
     B, S, H, D = 1, 64, 1, 64
@@ -366,15 +414,16 @@ def test_mask_matches_python_philox():
     k = torch.randn(B, S, H, D, device="cuda", dtype=torch.bfloat16)
 
     kernel_mask = extract_dropout_mask(q, k, p, seed, flash_attn_func)
-    python_mask = generate_mask_mma_layout(B, H, S, S, p, seed).to("cuda")
+    python_mask = generate_mask_python_philox(B, H, S, S, p, seed).to("cuda")
 
     match = (kernel_mask == python_mask).float().mean().item()
-    print(f"Kernel vs MMA-layout Python Philox: {match:.4f}")
+    sm = _device_sm()
+    print(f"Kernel vs Python Philox (SM{sm}): {match:.4f}")
     assert match > 0.99, f"Mask agreement {match:.4f} < 0.99"
 
 
 def test_fwd_matches_python_philox_ref():
-    """Forward output matches f32 reference using MMA-layout Python mask."""
+    """Forward output matches f32 reference using the arch-appropriate Python mask."""
     from flash_attn.cute.interface import flash_attn_func
 
     B, S, H, D = 1, 64, 1, 64
@@ -384,10 +433,11 @@ def test_fwd_matches_python_philox_ref():
     k = torch.randn(B, S, H, D, device="cuda", dtype=torch.bfloat16)
     v = torch.randn(B, S, H, D, device="cuda", dtype=torch.bfloat16)
 
-    mask = generate_mask_mma_layout(B, H, S, S, p, seed).to("cuda")
+    mask = generate_mask_python_philox(B, H, S, S, p, seed).to("cuda")
     out_ref = attention_dropout_ref(q, k, v, mask, p)
     out_flash, _ = flash_attn_func(q, k, v, dropout_p=p, dropout_seed=seed)
 
     err = (out_flash.float() - out_ref).abs().max().item()
-    print(f"Flash vs MMA-layout Python Philox ref: {err:.6f}")
-    assert err < 0.01, f"Forward error {err:.6f} vs MMA-layout Python Philox ref"
+    sm = _device_sm()
+    print(f"Flash vs Python Philox ref (SM{sm}): {err:.6f}")
+    assert err < 0.01, f"Forward error {err:.6f} vs Python Philox ref"
