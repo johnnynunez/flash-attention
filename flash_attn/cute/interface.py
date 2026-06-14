@@ -38,6 +38,7 @@ from flash_attn.cute.flash_fwd import FlashAttentionForwardSm80
 from flash_attn.cute.flash_fwd_sm90 import FlashAttentionForwardSm90
 from flash_attn.cute.flash_fwd_sm100 import FlashAttentionForwardSm100, DescaleTensors
 from flash_attn.cute.flash_fwd_sm120 import FlashAttentionForwardSm120
+from flash_attn.cute.flash_fwd_sm120_tma import FlashAttentionForwardSm120Tma
 from flash_attn.cute.flash_bwd_preprocess import FlashAttentionBackwardPreprocess
 from flash_attn.cute.flash_bwd import FlashAttentionBackwardSm80
 from flash_attn.cute.flash_bwd_sm90 import FlashAttentionBackwardSm90
@@ -456,6 +457,12 @@ def _flash_attn_fwd(
     qhead_per_kvhead = num_head // num_head_kv
     if pack_gqa is None:
         pack_gqa = qhead_per_kvhead > 1
+        # SM120 (Blackwell GeForce / RTX PRO / DGX Spark): the pack_gqa packed-coordinate
+        # O-store path is not functional on this arch (crd2idx on the (h_idx, m_idx) packed
+        # gmem tensor). GQA is handled correctly via the standard per-head path, which is at
+        # perf parity on sm_120, so disable pack_gqa by default here.
+        if pack_gqa and torch.cuda.get_device_capability(q.device)[0] == 12:
+            pack_gqa = False
 
     is_fp8 = v.dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
     requires_grad = any(t is not None and t.requires_grad for t in [q, k, v, qv])
@@ -516,9 +523,12 @@ def _flash_attn_fwd(
 
     current_stream = cute.runtime.make_fake_stream(use_tvm_ffi_env_stream=True)
 
-    # SM80/SM120: uses SM80 MMA, 128 threads (4 warps)
-    if arch // 10 in [8, 12]:
+    # SM80/SM120: uses SM80 MMA. SM120 uses 8 MMA warps to halve acc reg/thread
+    # (acc_S 64+acc_O 128 -> 32+64) and eliminate ~17 MB of local spilling.
+    if arch // 10 == 8:
         num_threads = 128
+    elif arch // 10 == 12:
+        num_threads = 256
 
     fwd_cfg = FwdConfig(128, 128, True, True)  # default
     if tile_mn is None:
@@ -945,25 +955,49 @@ def _flash_attn_fwd(
         elif arch // 10 == 12:
             # SM120 (Blackwell GeForce / DGX Spark): uses SM80 MMA with SM120 SMEM capacity
             assert not use_block_sparsity, "Block sparsity not supported on SM 12.0"
-            assert page_table is None, "Paged KV not supported on SM 12.0 in this PR"
-            assert not is_split_kv, "SplitKV not supported on SM 12.0 in this PR"
-            fa_fwd = FlashAttentionForwardSm120(
-                dtype,
-                head_dim,
-                head_dim_v,
-                qhead_per_kvhead,
-                is_causal=causal,
-                is_local=local,
-                pack_gqa=pack_gqa,
-                tile_m=tile_m,
-                tile_n=tile_n,
-                num_stages=1,
-                num_threads=num_threads,
-                Q_in_regs=False,
-                score_mod=score_mod,
-                mask_mod=mask_mod,
-                has_aux_tensors=aux_tensors is not None,
-            )
+            # TMA kernel when: no paged KV, no varlen, and not pack_gqa.
+            # pack_gqa O-store is not yet supported in the TMA epilogue; the CpAsync
+            # fallback handles GQA correctly and is at perf parity on sm_120.
+            is_varlen = cu_seqlens_q is not None or cu_seqlens_k is not None
+            use_tma_sm120 = (page_table is None and not is_varlen and not pack_gqa)
+            if use_tma_sm120 and FlashAttentionForwardSm120Tma.can_implement(
+                dtype, head_dim, head_dim_v, tile_m, tile_n,
+                num_mma_warps=8, kv_stages=2, is_causal=causal,
+            ):
+                fa_fwd = FlashAttentionForwardSm120Tma(
+                    dtype,
+                    head_dim,
+                    head_dim_v,
+                    qhead_per_kvhead,
+                    is_causal=causal,
+                    is_local=local,
+                    pack_gqa=pack_gqa,
+                    tile_m=tile_m,
+                    tile_n=tile_n,
+                    num_mma_warps=8,
+                    kv_stages=2,
+                    score_mod=score_mod,
+                    mask_mod=mask_mod,
+                    has_aux_tensors=aux_tensors is not None,
+                )
+            else:
+                fa_fwd = FlashAttentionForwardSm120(
+                    dtype,
+                    head_dim,
+                    head_dim_v,
+                    qhead_per_kvhead,
+                    is_causal=causal,
+                    is_local=local,
+                    pack_gqa=pack_gqa,
+                    tile_m=tile_m,
+                    tile_n=tile_n,
+                    num_stages=1,
+                    num_threads=num_threads,
+                    Q_in_regs=False,
+                    score_mod=score_mod,
+                    mask_mod=mask_mod,
+                    has_aux_tensors=aux_tensors is not None,
+                )
         else:
             raise ValueError(
                 f"Unsupported compute capability: {arch}. Supported: 8.x, 9.x, 10.x, 11.x, 12.x"
@@ -1326,7 +1360,6 @@ def _flash_attn_bwd(
         use_2cta_instrs = False
         num_threads = 128
         assert not (block_sparse_tensors is not None), "Block sparsity backward not supported on SM 12.0"
-        assert score_mod is None and score_mod_bwd is None, "score_mod backward not supported on SM 12.0"
         assert mask_mod is None, "mask_mod backward not supported on SM 12.0"
         assert deterministic is False, "deterministic backward not supported on SM 12.0"
     elif arch // 10 == 9:
@@ -1468,8 +1501,6 @@ def _flash_attn_bwd(
         assert cu_seqlens_q is None and cu_seqlens_k is None, (
             "varlen + score_mod not supported in bwd yet"
         )
-        if arch // 10 == 8:
-            raise NotImplementedError("Custom user-provided score_mod is not supported on SM8x architectures.")
 
     device = q.device
     out_torch_dtype = q.dtype
@@ -1641,7 +1672,7 @@ def _flash_attn_bwd(
     else:
         spt = (causal or local) and deterministic
 
-    if arch // 10 in [8, 9, 12]:
+    if arch // 10 in [8, 9]:
         compile_key = (
             arch,
             dtype,
@@ -1675,6 +1706,49 @@ def _flash_attn_bwd(
             mask_mod_hash,
             num_aux_tensors,
             aux_scalar_metadata,
+            use_block_sparsity,
+            block_sparse_broadcast_pattern,
+            get_broadcast_dims(q),
+            get_broadcast_dims(k),
+            get_broadcast_dims(v),
+            get_broadcast_dims(dout),
+            # Prevent TVM stride poisoning when only one block is present.
+            (seqlen_q_rounded // m_block_size == 1),
+            (seqlen_k_rounded // n_block_size == 1),
+        )
+    elif arch // 10 == 12:
+        compile_key = (
+            arch,
+            dtype,
+            head_dim,
+            head_dim_v,
+            qhead_per_kvhead,
+            causal,
+            window_size_left is not None,
+            window_size_right is not None,
+            m_block_size,
+            n_block_size,
+            num_threads,
+            pack_gqa,
+            num_stages_Q,
+            num_stages_dO,
+            SdP_swapAB,
+            dKV_swapAB,
+            dQ_swapAB,
+            AtomLayoutMSdP,
+            AtomLayoutNdKV,
+            AtomLayoutMdQ,
+            V_in_regs,
+            # dQ_single_wg,
+            deterministic,
+            cu_seqlens_q is None,
+            cu_seqlens_k is None,
+            seqused_q is None,
+            seqused_k is None,
+            score_mod_hash,
+            score_mod_bwd_hash,
+            mask_mod_hash,
+            num_aux_tensors,
             use_block_sparsity,
             block_sparse_broadcast_pattern,
             get_broadcast_dims(q),
@@ -1765,6 +1839,7 @@ def _flash_attn_bwd(
                 V_in_regs=V_in_regs,
                 score_mod=score_mod,
                 score_mod_bwd=score_mod_bwd,
+                has_aux_tensors=aux_tensors is not None,
             )
         elif arch // 10 == 9:
             fa_bwd_obj = FlashAttentionBackwardSm90(
