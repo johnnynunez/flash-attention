@@ -533,13 +533,14 @@ def _flash_attn_fwd(
     fwd_cfg = FwdConfig(128, 128, True, True)  # default
     if tile_mn is None:
         if arch // 10 == 12:
-            # SM120 tile sizes tuned for 99 KB SMEM capacity:
-            # D<=64:  128x128 → 48 KB (good occupancy)
-            # D>64:   128x64  → 64 KB (128x128 would use 96 KB, hurting occupancy)
+            # SM120 tile sizes, autotuned on RTX PRO 6000 (CpAsync num_stages=1 path).
+            # hd128: 128x128 fits 96 KB (Q+K+V single-stage), beats 128x64 by 10-25%.
+            # hd<=64: 128x256 fits ~80 KB and beats 128x128 by ~10% at seqlen>=2048
+            # (more KV per tile amortizes softmax). Both beat sdpa-flash on this chip.
             if head_dim <= 64:
-                fwd_cfg = FwdConfig(128, 128, True, True)
+                fwd_cfg = FwdConfig(128, 256, True, True)
             else:
-                fwd_cfg = FwdConfig(128, 64, True, True)
+                fwd_cfg = FwdConfig(128, 128, True, True)
         elif arch // 10 == 8:
             fwd_cfg = FwdConfig(128, 64, True, True)  # SM80, should tune
         elif arch // 10 == 9:
@@ -960,9 +961,18 @@ def _flash_attn_fwd(
             # fallback handles GQA correctly and is at perf parity on sm_120.
             is_varlen = cu_seqlens_q is not None or cu_seqlens_k is not None
             use_tma_sm120 = (page_table is None and not is_varlen and not pack_gqa)
+            # Autotune knobs (temporary; env-overridable for sweeps).
+            _sm120_nmw = int(os.environ.get("FA_SM120_MMA_WARPS", "8"))
+            _sm120_kvs = int(os.environ.get("FA_SM120_KV_STAGES", "2"))
+            _sm120_tm = os.environ.get("FA_SM120_TILE_M")
+            _sm120_tn = os.environ.get("FA_SM120_TILE_N")
+            if _sm120_tm is not None:
+                tile_m = int(_sm120_tm)
+            if _sm120_tn is not None:
+                tile_n = int(_sm120_tn)
             if use_tma_sm120 and FlashAttentionForwardSm120Tma.can_implement(
                 dtype, head_dim, head_dim_v, tile_m, tile_n,
-                num_mma_warps=8, kv_stages=2, is_causal=causal,
+                num_mma_warps=_sm120_nmw, kv_stages=_sm120_kvs, is_causal=causal,
             ):
                 fa_fwd = FlashAttentionForwardSm120Tma(
                     dtype,
@@ -974,8 +984,8 @@ def _flash_attn_fwd(
                     pack_gqa=pack_gqa,
                     tile_m=tile_m,
                     tile_n=tile_n,
-                    num_mma_warps=8,
-                    kv_stages=2,
+                    num_mma_warps=_sm120_nmw,
+                    kv_stages=_sm120_kvs,
                     score_mod=score_mod,
                     mask_mod=mask_mod,
                     has_aux_tensors=aux_tensors is not None,
