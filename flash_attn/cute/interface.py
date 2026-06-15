@@ -460,12 +460,13 @@ def _flash_attn_fwd(
     qhead_per_kvhead = num_head // num_head_kv
     if pack_gqa is None:
         pack_gqa = qhead_per_kvhead > 1
-        # SM120 (Blackwell GeForce / RTX PRO / DGX Spark): the pack_gqa packed-coordinate
-        # O-store path is not functional on this arch (crd2idx on the (h_idx, m_idx) packed
-        # gmem tensor). GQA is handled correctly via the standard per-head path, which is at
-        # perf parity on sm_120, so disable pack_gqa by default here.
-        if pack_gqa and torch.cuda.get_device_capability(q.device)[0] == 12:
-            pack_gqa = False
+    # SM120 (Blackwell GeForce / RTX PRO / DGX Spark): the pack_gqa packed-coordinate
+    # O-store path is not functional on this arch (crd2idx fails on the (h_idx, m_idx)
+    # packed gmem tensor in pack_gqa.store_O). GQA is handled correctly via the standard
+    # per-head path, which is at perf parity on sm_120, so force-disable pack_gqa here
+    # regardless of how it was requested. Numerics are identical.
+    if pack_gqa and torch.cuda.get_device_capability(v.device)[0] == 12:
+        pack_gqa = False
 
     is_fp8 = v.dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
     requires_grad = any(t is not None and t.requires_grad for t in [q, k, v, qv])
@@ -588,6 +589,12 @@ def _flash_attn_fwd(
             num_splits = num_splits_heuristic(total_mblocks, num_SMs, num_n_blocks, 128)
         else:
             num_splits = 1
+
+    # SM120 (Blackwell GeForce / RTX PRO / DGX Spark) does not have the SplitKV
+    # forward + combine path wired up; force a single split. The full-KV kernel is
+    # correct and is the only supported path on this arch.
+    if arch // 10 == 12 and num_splits != 1:
+        num_splits = 1
 
     is_split_kv = num_splits > 1
     if is_split_kv:
