@@ -330,6 +330,9 @@ def _flash_attn_fwd(
     k_descale: Optional[torch.Tensor] = None,
     v_descale: Optional[torch.Tensor] = None,
     gather_kv_indices: Optional[torch.Tensor] = None,
+    dropout_p: float = 0.0,
+    dropout_seed: Optional[int] = None,
+    dropout_offset: int = 0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Forward pass for FlashAttention.
 
@@ -531,6 +534,7 @@ def _flash_attn_fwd(
         num_threads = 256
 
     fwd_cfg = FwdConfig(128, 128, True, True)  # default
+    _sm120_is_tma = False  # set True only when the sm120 TMA forward kernel is selected
     if tile_mn is None:
         if arch // 10 == 12:
             # SM120 tile sizes, autotuned on RTX PRO 6000 (CpAsync num_stages=1 path).
@@ -759,6 +763,7 @@ def _flash_attn_fwd(
         row_max is not None,
         gather_kv_length,
         sparse_kv,
+        dropout_p > 0.0,
         disable_sparse_kv_bitmask,
         fa_logging.get_fa_log_level(),
     )
@@ -960,7 +965,7 @@ def _flash_attn_fwd(
             # pack_gqa O-store is not yet supported in the TMA epilogue; the CpAsync
             # fallback handles GQA correctly and is at perf parity on sm_120.
             is_varlen = cu_seqlens_q is not None or cu_seqlens_k is not None
-            use_tma_sm120 = (page_table is None and not is_varlen and not pack_gqa)
+            use_tma_sm120 = (page_table is None and not is_varlen and not pack_gqa and dropout_p == 0.0)
             # Autotune knobs (temporary; env-overridable for sweeps).
             _sm120_nmw = int(os.environ.get("FA_SM120_MMA_WARPS", "8"))
             _sm120_kvs = int(os.environ.get("FA_SM120_KV_STAGES", "2"))
@@ -974,6 +979,7 @@ def _flash_attn_fwd(
                 dtype, head_dim, head_dim_v, tile_m, tile_n,
                 num_mma_warps=_sm120_nmw, kv_stages=_sm120_kvs, is_causal=causal,
             ):
+                _sm120_is_tma = True
                 fa_fwd = FlashAttentionForwardSm120Tma(
                     dtype,
                     head_dim,
@@ -1007,6 +1013,7 @@ def _flash_attn_fwd(
                     score_mod=score_mod,
                     mask_mod=mask_mod,
                     has_aux_tensors=aux_tensors is not None,
+                    dropout_p=dropout_p,
                 )
         else:
             raise ValueError(
@@ -1060,6 +1067,20 @@ def _flash_attn_fwd(
                 sparse_tensors,
                 AuxData(cute_aux_tensors, aux_scalars),
             ])
+            # Dropout RNG state. Only the sm120 CpAsync forward __call__ takes
+            # (dropout_seed, dropout_offset) right before stream; supply them
+            # (None when disabled) to keep positional binding correct. The TMA
+            # path and other arches don't have these params.
+            if arch // 10 == 12 and not _sm120_is_tma:
+                if dropout_p > 0.0:
+                    _seed = dropout_seed if dropout_seed is not None else torch.randint(
+                        0, 2**63 - 1, (1,), dtype=torch.int64
+                    ).item()
+                    compile_args.append(cutlass.Int64(_seed))
+                    compile_args.append(cutlass.Int64(dropout_offset))
+                else:
+                    compile_args.append(None)
+                    compile_args.append(None)
             compile_args.append(current_stream)
             _flash_attn_fwd.compile_cache[compile_key] = cute.compile(
                 *compile_args, options="--enable-tvm-ffi"
@@ -1135,6 +1156,16 @@ def _flash_attn_fwd(
                 else None,
                 AuxData(aux_tensors, aux_scalars),
             ])
+            if arch // 10 == 12 and not _sm120_is_tma:
+                if dropout_p > 0.0:
+                    _seed_rt = dropout_seed if dropout_seed is not None else torch.randint(
+                        0, 2**63 - 1, (1,), dtype=torch.int64
+                    ).item()
+                    call_args.append(cutlass.Int64(_seed_rt))
+                    call_args.append(cutlass.Int64(dropout_offset))
+                else:
+                    call_args.append(None)
+                    call_args.append(None)
             _flash_attn_fwd.compile_cache[compile_key](*call_args)
     if is_split_kv:
         _flash_attn_fwd_combine(
@@ -1333,6 +1364,9 @@ def _flash_attn_bwd(
     aux_scalars: Optional[tuple] = None,
     block_sparse_tensors: Optional[BlockSparseTensorsTorch] = None,
     dlse: Optional[torch.Tensor] = None,
+    dropout_p: float = 0.0,
+    dropout_seed: Optional[int] = None,
+    dropout_offset: int = 0,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     aux_scalars = tuple(aux_scalars) if aux_scalars else None
     arch = _get_device_arch()
@@ -1768,6 +1802,7 @@ def _flash_attn_bwd(
             # Prevent TVM stride poisoning when only one block is present.
             (seqlen_q_rounded // m_block_size == 1),
             (seqlen_k_rounded // n_block_size == 1),
+            dropout_p > 0.0,
         )
     else:
         compile_key = (
@@ -1850,6 +1885,7 @@ def _flash_attn_bwd(
                 score_mod=score_mod,
                 score_mod_bwd=score_mod_bwd,
                 has_aux_tensors=aux_tensors is not None,
+                dropout_p=dropout_p,
             )
         elif arch // 10 == 9:
             fa_bwd_obj = FlashAttentionBackwardSm90(
@@ -1939,7 +1975,7 @@ def _flash_attn_bwd(
         dq_accum_tensor = dq_tensor if use_dedicated_hd256_kernel else dq_accum_tensor
 
         # TODO: check @can_implement
-        _flash_attn_bwd.compile_cache[compile_key] = cute.compile(
+        _bwd_compile_args = [
             fa_bwd_obj,
             q_tensor,
             k_tensor,
@@ -1962,12 +1998,24 @@ def _flash_attn_bwd(
             dV_semaphore_tensor,
             AuxData(cute_aux_tensors, aux_scalars),
             sparse_tensors_compile,
-            current_stream,
+        ]
+        # sm120/sm80 backward __call__ takes (dropout_seed, dropout_offset) before stream.
+        if arch // 10 in [8, 12]:
+            if dropout_p > 0.0:
+                _bwd_seed = dropout_seed if dropout_seed is not None else 0
+                _bwd_compile_args.append(cutlass.Int64(_bwd_seed))
+                _bwd_compile_args.append(cutlass.Int64(dropout_offset))
+            else:
+                _bwd_compile_args.append(None)
+                _bwd_compile_args.append(None)
+        _bwd_compile_args.append(current_stream)
+        _flash_attn_bwd.compile_cache[compile_key] = cute.compile(
+            *_bwd_compile_args,
             options="--enable-tvm-ffi",
         )
     if not is_fake_mode():
         dq_accum = dq if use_dedicated_hd256_kernel else dq_accum
-        _flash_attn_bwd.compile_cache[compile_key](
+        _bwd_call_args = [
             q.detach(),
             k.detach(),
             v.detach(),
@@ -2000,7 +2048,16 @@ def _flash_attn_bwd(
             )
             if normalized_block_sparse_tensors is not None
             else None,
-        )
+        ]
+        if arch // 10 in [8, 12]:
+            if dropout_p > 0.0:
+                _bwd_seed_rt = dropout_seed if dropout_seed is not None else 0
+                _bwd_call_args.append(cutlass.Int64(_bwd_seed_rt))
+                _bwd_call_args.append(cutlass.Int64(dropout_offset))
+            else:
+                _bwd_call_args.append(None)
+                _bwd_call_args.append(None)
+        _flash_attn_bwd.compile_cache[compile_key](*_bwd_call_args)
     # Postprocess: convert dq_accum from float32 to dq in bf16/fp16
     # hd=256 2CTA backward has its own internal postprocess, skip here.
     if not use_dedicated_hd256_kernel:
@@ -2069,6 +2126,7 @@ class FlashAttnFunc(torch.autograd.Function):
         block_sparse_tensors: Optional[BlockSparseTensorsTorch] = None,
         block_sparse_tensors_bwd: Optional[BlockSparseTensorsTorch] = None,
         return_lse: bool = False,
+        dropout_p: float = 0.0,
     ):
         aux_scalars = tuple(aux_scalars) if aux_scalars else None
         shared_kv = k is v
@@ -2078,6 +2136,11 @@ class FlashAttnFunc(torch.autograd.Function):
             # by setting q, k to None
             qv = q if qv is None else qv
             q = k = None
+        # Generate a single dropout RNG seed in the forward pass and reuse it in the
+        # backward so both regenerate the IDENTICAL keep-mask. offset=0 for now.
+        dropout_seed = None
+        if dropout_p > 0.0:
+            dropout_seed = int(torch.randint(0, 2**62, (1,), dtype=torch.int64).item())
         out, lse = _flash_attn_fwd(
             q,
             k,
@@ -2098,6 +2161,9 @@ class FlashAttnFunc(torch.autograd.Function):
             block_sparse_tensors=block_sparse_tensors,
             return_lse=return_lse,
             gather_kv_indices=gather_kv_indices,
+            dropout_p=dropout_p,
+            dropout_seed=dropout_seed,
+            dropout_offset=0,
         )
         ctx.save_for_backward(q, k, v, out, lse, *(aux_tensors or ()))
         ctx.softmax_scale = softmax_scale
@@ -2111,6 +2177,8 @@ class FlashAttnFunc(torch.autograd.Function):
         ctx.mask_mod = mask_mod
         ctx.aux_scalars = aux_scalars
         ctx.block_sparse_tensors_bwd = block_sparse_tensors_bwd
+        ctx.dropout_p = dropout_p
+        ctx.dropout_seed = dropout_seed
         ctx.set_materialize_grads(False)
         return out, lse
 
@@ -2142,8 +2210,11 @@ class FlashAttnFunc(torch.autograd.Function):
             aux_scalars=ctx.aux_scalars,
             block_sparse_tensors=ctx.block_sparse_tensors_bwd,
             dlse=dlse,
+            dropout_p=ctx.dropout_p,
+            dropout_seed=ctx.dropout_seed,
+            dropout_offset=0,
         )
-        return dq, dk, dv, *((None,) * 31)
+        return dq, dk, dv, *((None,) * 32)
 
 
 class FlashAttnVarlenFunc(torch.autograd.Function):
@@ -2303,6 +2374,7 @@ def flash_attn_func(
     block_sparse_tensors: Optional[BlockSparseTensorsTorch] = None,
     block_sparse_tensors_bwd: Optional[BlockSparseTensorsTorch] = None,
     return_lse: bool = False,
+    dropout_p: float = 0.0,
 ):
     return FlashAttnFunc.apply(
         q,
@@ -2326,6 +2398,7 @@ def flash_attn_func(
         block_sparse_tensors,
         block_sparse_tensors_bwd,
         return_lse,
+        dropout_p,
     )
 
 

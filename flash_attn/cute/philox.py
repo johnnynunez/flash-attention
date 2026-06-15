@@ -83,18 +83,27 @@ def apply_dropout(
     head_idx: Int32,
     num_heads: cutlass.Constexpr[int],
     seqlen_k: Int32,
+    transpose_indices: cutlass.Constexpr[bool] = False,
 ):
     """Apply inverted dropout to P in-place, keyed by global (batch, head, q_idx, kv_idx).
 
     Layout-agnostic: each element's RNG draw is determined solely by its global
     coordinates, so the forward pass and the backward recompute generate the
-    IDENTICAL keep-mask regardless of fragment layout.
+    IDENTICAL keep-mask regardless of fragment layout. When ``transpose_indices``
+    is set (backward SdP_swapAB), tScS[i] holds (kv_idx, q_idx) instead of
+    (q_idx, kv_idx), so we swap accordingly.
     """
     n_vals = cutlass.const_expr(cute.size(acc_S.shape))
     bh = batch_idx * Int32(num_heads) + head_idx
+    if cutlass.const_expr(transpose_indices):
+        q_pos = cutlass.const_expr(1)
+        kv_pos = cutlass.const_expr(0)
+    else:
+        q_pos = cutlass.const_expr(0)
+        kv_pos = cutlass.const_expr(1)
     for i in cutlass.range(n_vals, unroll_full=True):
-        q_idx = tScS[i][0]
-        kv_idx = tScS[i][1]
+        q_idx = tScS[i][q_pos]
+        kv_idx = tScS[i][kv_pos]
         # Global linear element id within this (batch, head) plane.
         lin = q_idx.to(Int64) * seqlen_k.to(Int64) + kv_idx.to(Int64)
         subseq = bh.to(Int64)

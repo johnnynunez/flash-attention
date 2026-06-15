@@ -14,7 +14,7 @@ import cuda.bindings.driver as cuda
 
 import cutlass
 import cutlass.cute as cute
-from cutlass import Float32, Int32, const_expr
+from cutlass import Float32, Int32, Int64, const_expr
 from cutlass.cute.nvgpu import cpasync, warp
 import cutlass.utils as utils_basic
 from cutlass.base_dsl.arch import Arch
@@ -57,6 +57,7 @@ class FlashAttentionForwardBase:
         mask_mod: Optional[cutlass.Constexpr] = None,
         has_aux_tensors: bool = False,
         q_subtile_factor: int | None = None,
+        dropout_p: float = 0.0,
     ):
         """Initializes the configuration for a flash attention kernel.
 
@@ -99,6 +100,7 @@ class FlashAttentionForwardBase:
         self.Q_in_regs = Q_in_regs
         self.score_mod = score_mod
         self.mask_mod = mask_mod
+        self.dropout_p = dropout_p
         self.qk_acc_dtype = Float32
         self.score_vec_size: cutlass.Constexpr = getattr(
             score_mod, "__vec_size__", 1 if cutlass.const_expr(has_aux_tensors) else 2
@@ -638,6 +640,8 @@ class FlashAttentionForwardSm80(FlashAttentionForwardBase):
         learnable_sink: Optional[cute.Tensor] = None,
         blocksparse_tensors: Optional[BlockSparseTensors] = None,
         aux_data: AuxData = AuxData(),
+        dropout_seed: Optional[Int64] = None,
+        dropout_offset: Optional[Int64] = None,
         # Always keep stream as the last parameter (EnvStream: obtained implicitly via TVM FFI).
         stream: cuda.CUstream = None,
     ):
@@ -737,6 +741,8 @@ class FlashAttentionForwardSm80(FlashAttentionForwardBase):
             TileScheduler,
             aux_data,
             fastdiv_mods,
+            dropout_seed,
+            dropout_offset,
         ).launch(
             grid=grid_dim,
             block=[self.num_threads, 1, 1],
@@ -776,9 +782,15 @@ class FlashAttentionForwardSm80(FlashAttentionForwardBase):
         TileScheduler: cutlass.Constexpr[Callable],
         aux_data: AuxData = AuxData(),
         fastdiv_mods=None,
+        dropout_seed: Optional[Int64] = None,
+        dropout_offset: Optional[Int64] = None,
     ):
         # Thread index, block index
         tidx, _, _ = cute.arch.thread_idx()
+
+        # Stash dropout RNG state for compute_one_n_block (runtime SSA values).
+        self._dropout_seed = dropout_seed
+        self._dropout_offset = dropout_offset
 
         tile_scheduler = TileScheduler.create(tile_sched_params)
         work_tile = tile_scheduler.initial_work_tile_info()
@@ -1175,6 +1187,8 @@ class FlashAttentionForwardSm80(FlashAttentionForwardBase):
             mask_fn(acc_S, n_block=n_block)
         row_scale = softmax.online_softmax(acc_S, is_first=is_first_n_block, check_inf=check_inf)
         softmax.rescale_O(mma_params.acc_O, row_scale)
+        if const_expr(self.dropout_p > 0.0):
+            self.apply_dropout(acc_S, mma_params.thr_mma_qk, batch_idx, head_idx, m_block, n_block, seqlen)
         rP = cute.make_fragment_like(acc_S, self.dtype)
         rP.store(acc_S.load().to(self.dtype))
         tOrP = layout_utils.reshape_acc_to_frgA(rP)
@@ -1227,6 +1241,29 @@ class FlashAttentionForwardSm80(FlashAttentionForwardBase):
             seqlen_info=seqlen,
             constant_q_idx=None,
             qhead_per_kvhead=self.qhead_per_kvhead if const_expr(self.pack_gqa) else 1,
+        )
+
+    @cute.jit
+    def apply_dropout(self, acc_S, thr_mma_qk, batch_idx, head_idx, m_block, n_block, seqlen):
+        """Apply inverted dropout to the post-softmax probabilities P (acc_S) in-place.
+
+        Keyed by global (batch, head, q_idx, kv_idx) so the backward pass regenerates
+        the identical keep-mask. p_keep = 1 - dropout_p; kept values scaled by 1/p_keep.
+        """
+        from flash_attn.cute.philox import apply_dropout as _apply_dropout
+        cS = cute.make_identity_tensor((self.tile_m, self.tile_n))
+        cS = cute.domain_offset((m_block * self.tile_m, n_block * self.tile_n), cS)
+        tScS = thr_mma_qk.partition_C(cS)
+        p_keep = Float32(1.0 - self.dropout_p)
+        scale = Float32(1.0 / (1.0 - self.dropout_p))
+        num_heads = cutlass.const_expr(self.qhead_per_kvhead if self.pack_gqa else 1)
+        _apply_dropout(
+            acc_S, tScS,
+            self._dropout_seed, self._dropout_offset,
+            p_keep, scale,
+            batch_idx, head_idx,
+            num_heads=1,
+            seqlen_k=seqlen.seqlen_k,
         )
 
 
