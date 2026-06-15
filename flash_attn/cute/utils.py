@@ -197,18 +197,18 @@ def compute_softmax_scale_log2(softmax_scale, score_mod):
         return LOG2_E, softmax_scale
 
 
-def compute_fastdiv_mods(mQ, mK, qhead_per_kvhead, pack_gqa, aux_tensors, mPageTable=None):
+def compute_fastdiv_mods(mQ, mK, qhead_per_kvhead, pack_gqa, aux_tensors, mPageTable=None, seqlen_dim=0):
     """Compute FastDivmodDivisor pairs for aux_tensors index computation.
 
     Returns a (seqlen_q_divmod, seqlen_k_divmod) tuple, or None if aux_tensors is None.
     """
     if const_expr(aux_tensors is None):
         return None
-    seqlen_q = cute.size(mQ.shape[0]) // (qhead_per_kvhead if const_expr(pack_gqa) else 1)
+    seqlen_q = cute.size(mQ.shape[seqlen_dim]) // (qhead_per_kvhead if const_expr(pack_gqa) else 1)
     seqlen_k = (
-        cute.size(mK.shape[0])
+        cute.size(mK.shape[seqlen_dim])
         if const_expr(mPageTable is None)
-        else mK.shape[0] * mPageTable.shape[1]
+        else mK.shape[seqlen_dim] * mPageTable.shape[1]
     )
     return (FastDivmodDivisor(seqlen_q), FastDivmodDivisor(seqlen_k))
 
@@ -489,9 +489,17 @@ def atomic_add_fp32(a: float | Float32, gmem_ptr: cute.Pointer, *, loc=None, ip=
     #     is_align_stack=False,
     #     asm_dialect=llvm.AsmDialect.AD_ATT,
     # )
-    nvvm.atomicrmw(
-        res=T.f32(), op=nvvm.AtomicOpKind.FADD, ptr=gmem_ptr.llvm_ptr, a=Float32(a).ir_value()
-    )
+    # The nvvm.atomicrmw binding signature differs across CUTLASS-DSL CUDA toolkit
+    # builds: cu12.9 takes (res=, op=, ptr=, a=) while cu13 takes (op, ptr, a) with
+    # the result type inferred. Support both so the kernel works regardless of which
+    # nvidia-cutlass-dsl libs variant is installed.
+    _a = Float32(a).ir_value()
+    try:
+        nvvm.atomicrmw(nvvm.AtomicOpKind.FADD, gmem_ptr.llvm_ptr, _a)
+    except TypeError:
+        nvvm.atomicrmw(
+            res=T.f32(), op=nvvm.AtomicOpKind.FADD, ptr=gmem_ptr.llvm_ptr, a=_a
+        )
 
 
 @dsl_user_op
